@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TDID Project Milestones Dashboard v4.24</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap');
+        body { font-family: 'Inter', 'Sarabun', sans-serif; }
+        #pdf-staging { position: absolute; left: -9999px; top: 0; width: 1200px; background: white; }
+        .pdf-page { width: 1200px; padding: 50px; background: white; }
+        .thai-font { font-family: 'Sarabun', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useMemo, useEffect, useRef } = React;
+
+        const Icons = {
+            Clock: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>,
+            Calendar: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>,
+            Search: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="21" y2="21" x1="16.65" y2="16.65"></line></svg>,
+            Logout: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>,
+            ChevronDown: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>,
+            User: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>,
+            Alert: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>,
+            Note: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>,
+            Download: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        };
+
+        const App = () => {
+            const [searchTerm, setSearchTerm] = useState('');
+            const [expandedProject, setExpandedProject] = useState(null);
+            const [metadata, setMetadata] = useState([]);
+            const [allMilestones, setAllMilestones] = useState([]);
+            const [logs, setLogs] = useState([]);
+            const [daysSinceUpdate, setDaysSinceUpdate] = useState(0);
+            const [isLoading, setIsLoading] = useState(true);
+            const [isExporting, setIsExporting] = useState(false);
+            const [auth, setAuth] = useState(null);
+            const [authError, setAuthError] = useState(false);
+            const stagingRef = useRef(null);
+
+            const STORAGE_ID = "6a0459bc92b1163e97f1d2ea";
+            const API_BASE = `https://api.steinhq.com/v1/storages/${STORAGE_ID}`;
+            const SESSION_KEY = 'ti_dashboard_session';
+            const TODAY = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })();
+            const TODAY_DISPLAY = TODAY.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+            const getFlexibleVal = (obj, searchKey) => {
+                const found = Object.keys(obj).find(k => k.toLowerCase().includes(searchKey.toLowerCase()));
+                return found ? obj[found] : "";
+            };
+
+            const isCompleted = (val) => {
+                if (typeof val === 'boolean') return val;
+                if (typeof val === 'number') return val === 1;
+                const str = String(val || "").toUpperCase();
+                return str === 'TRUE' || str === 'CHECKED' || str === 'YES';
+            };
+
+            const getDaysRemaining = (targetDateStr) => {
+                const target = new Date(targetDateStr);
+                if (isNaN(target)) return null;
+                const diffTime = target - TODAY;
+                return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            };
+
+            const calculateProgress = (pid, milestones) => {
+                const pMilestones = milestones.filter(m => String(m.id || "").trim() === String(pid).trim());
+                if (pMilestones.length === 0) return 0;
+                const maxVer = Math.max(...pMilestones.map(m => parseFloat(m.version || 0)));
+                const currentMilestones = pMilestones.filter(m => parseFloat(m.version) === maxVer);
+                return currentMilestones.reduce((acc, m) => isCompleted(m.Completed) ? acc + parseFloat(m['Weight (%)'] || 0) : acc, 0);
+            };
+
+            const calculateRisk = (pid, status, milestones) => {
+                if (status !== 'In Progress') return null;
+                const pMilestones = milestones.filter(m => String(m.id || "").trim() === String(pid).trim());
+                if (pMilestones.length === 0) return 0;
+                const maxVer = Math.max(...pMilestones.map(m => parseFloat(m.version || 0)));
+                const currentMilestones = pMilestones.filter(m => parseFloat(m.version) === maxVer);
+                return currentMilestones.reduce((acc, m) => {
+                    const targetDate = new Date(m['Target Date']);
+                    return (!isNaN(targetDate) && targetDate < TODAY && !isCompleted(m.Completed)) ? acc + parseFloat(m['Weight (%)'] || 0) : acc;
+                }, 0);
+            };
+
+            useEffect(() => {
+                const saved = JSON.parse(localStorage.getItem(SESSION_KEY));
+                if (saved && (Date.now() - saved.timestamp < 3600000)) setAuth(saved.token);
+                else {
+                    const input = prompt("Please enter credentials (User:Pass)");
+                    if (input) {
+                        const token = btoa(input);
+                        localStorage.setItem(SESSION_KEY, JSON.stringify({ token, timestamp: Date.now() }));
+                        setAuth(token);
+                    } else setIsLoading(false);
+                }
+            }, []);
+
+            useEffect(() => {
+                if (!auth) return;
+                const headers = { 'Authorization': `Basic ${auth}` };
+                
+                const fetchData = async () => {
+                    try {
+                        const [resMeta, resMiles, resLog] = await Promise.all([
+                            fetch(`${API_BASE}/Metadata`, { headers }),
+                            fetch(`${API_BASE}/Milestones`, { headers }),
+                            fetch(`${API_BASE}/Log`, { headers })
+                        ]);
+
+                        if (resMeta.status === 401 || resMiles.status === 401 || resLog.status === 401) {
+                            localStorage.removeItem(SESSION_KEY);
+                            setAuth(null);
+                            setAuthError(true);
+                            setIsLoading(false);
+                            return;
+                        }
+
+                        const metaData = await resMeta.json();
+                        const milesData = await resMiles.json();
+                        const logData = await resLog.json();
+
+                        const mSafeRaw = (Array.isArray(metaData) ? metaData : []).filter(p => p.Status !== 'Inactive');
+                        const dedupedMap = new Map();
+                        mSafeRaw.forEach(p => {
+                            const pid = String(p['Project IDs'] || "").trim();
+                            if (pid) dedupedMap.set(pid, p);
+                        });
+                        const mSafe = Array.from(dedupedMap.values());
+                        const miSafe = Array.isArray(milesData) ? milesData : [];
+                        const lSafe = Array.isArray(logData) ? logData : [];
+                        
+                        setMetadata(mSafe); setAllMilestones(miSafe); setLogs(lSafe);
+                        
+                        let entryDates = lSafe.map(l => l.date ? new Date(l.date) : null).filter(d => d && !isNaN(d.getTime()));
+                        if (entryDates.length === 0) entryDates = miSafe.map(m => m.date ? new Date(m.date) : null).filter(d => d && !isNaN(d.getTime()));
+                        if (entryDates.length > 0) {
+                            const latest = new Date(Math.max(...entryDates));
+                            latest.setHours(0, 0, 0, 0);
+                            setDaysSinceUpdate(Math.floor((TODAY - latest) / (1000 * 60 * 60 * 24)));
+                        }
+                        setIsLoading(false);
+                    } catch (e) {
+                        console.error("Fetch Error:", e);
+                        setIsLoading(false);
+                    }
+                };
+                fetchData();
+            }, [auth]);
+
+            const stats = useMemo(() => {
+                const inProgress = metadata.filter(p => p.Status === 'In Progress');
+                const completed = metadata.filter(p => p.Status === 'Completed');
+                const cancelled = metadata.filter(p => p.Status === 'Cancelled');
+                const highRisk = inProgress.filter(p => calculateRisk(p['Project IDs'], p.Status, allMilestones) > 15);
+                const upcoming30 = allMilestones.filter(m => {
+                    const days = getDaysRemaining(m['Target Date']);
+                    return days !== null && days >= 0 && days <= 30 && !isCompleted(m.Completed);
+                });
+                const upcoming7 = allMilestones.filter(m => {
+                    const days = getDaysRemaining(m['Target Date']);
+                    return days !== null && days >= 0 && days <= 7 && !isCompleted(m.Completed);
+                });
+                return {
+                    inProgressCount: inProgress.length,
+                    completedCount: completed.length,
+                    cancelledCount: cancelled.length,
+                    totalCount: metadata.length,
+                    completionRate: metadata.length ? Math.round((completed.length / metadata.length) * 100) : 0,
+                    highRiskCount: highRisk.length,
+                    upcomingCount: upcoming30.length,
+                    upcoming7Count: upcoming7.length
+                };
+            }, [metadata, allMilestones]);
+
+            const filteredProjects = useMemo(() => {
+                return metadata.filter(p => {
+                    const name = String(p['Project Name'] || "").toLowerCase();
+                    const owner = String(p.Owner || "").toLowerCase();
+                    return name.includes(searchTerm.toLowerCase()) || owner.includes(searchTerm.toLowerCase());
+                });
+            }, [metadata, searchTerm]);
+
+            const highRiskProjects = useMemo(() =>
+                filteredProjects.filter(p =>
+                    p.Status === 'In Progress' && calculateRisk(String(p['Project IDs'] || "").trim(), p.Status, allMilestones) > 15
+                ), [filteredProjects, allMilestones]);
+
+            const otherProjects = useMemo(() =>
+                filteredProjects.filter(p =>
+                    !(p.Status === 'In Progress' && calculateRisk(String(p['Project IDs'] || "").trim(), p.Status, allMilestones) > 15)
+                ), [filteredProjects, allMilestones]);
+
+            const generateUniversalPDF = async () => {
+                setIsExporting(true);
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF('p', 'mm', 'a4');
+                const staging = stagingRef.current;
+                const pages = staging.querySelectorAll('.pdf-page');
+
+                const now = new Date();
+                const dateStr = now.toISOString().split('T')[0];
+                const hh = String(now.getHours()).padStart(2, '0');
+                const mm = String(now.getMinutes()).padStart(2, '0');
+                const filterPart = searchTerm.trim()
+                    ? `_filter-${searchTerm.trim().replace(/[^a-zA-Z0-9฀-๿]/g, '-').replace(/-+/g, '-').toLowerCase()}`
+                    : '_all-projects';
+                const filename = `TDID_Dashboard_${dateStr}_${hh}${mm}${filterPart}.pdf`;
+
+                try {
+                    for (let i = 0; i < pages.length; i++) {
+                        const canvas = await html2canvas(pages[i], {
+                            scale: 2,
+                            useCORS: true,
+                            logging: false
+                        });
+                        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                        const imgProps = pdf.getImageProperties(imgData);
+                        const pdfWidth = pdf.internal.pageSize.getWidth();
+                        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+                        if (i > 0) pdf.addPage();
+                        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+                    }
+                    pdf.save(filename);
+                } catch (err) {
+                    console.error("PDF Generation Error:", err);
+                    alert("Error generating PDF. Please ensure you are connected to the internet to load the Thai font.");
+                } finally {
+                    setIsExporting(false);
+                }
+            };
+
+            const renderProjectRow = (p) => {
+                const pid = String(p['Project IDs'] || "").trim();
+                const risk = calculateRisk(pid, p.Status, allMilestones);
+                const progress = calculateProgress(pid, allMilestones);
+                const milestones = allMilestones.filter(m => String(m.id || "").trim() === pid);
+                const pLogs = logs.filter(l => String(l.id || "").trim() === pid);
+                const isHighRisk = p.Status === 'In Progress' && risk > 15;
+                const statusColor = p.Status === 'Completed' ? 'bg-emerald-100 text-emerald-700' : p.Status === 'In Progress' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500';
+                return (
+                    <React.Fragment key={pid}>
+                        <tr className={`cursor-pointer transition-colors ${isHighRisk ? 'bg-red-50/30 hover:bg-red-50/60' : 'hover:bg-slate-50'}`} onClick={() => setExpandedProject(expandedProject === pid ? null : pid)}>
+                            <td className="px-10 py-8 font-bold text-slate-800 thai-font text-lg">{p['Project Name']} <div className="text-xs text-slate-400 uppercase mt-2 font-sans tracking-tight">ID: {pid}</div></td>
+                            <td className="px-10 py-8"><div className="flex items-center gap-3 font-semibold text-slate-700 mb-2 thai-font text-base"><Icons.User /> {p.Owner}</div><span className={`px-3 py-1 rounded-md text-[11px] font-black uppercase ${statusColor}`}>{p.Status}</span></td>
+                            <td className="px-10 py-8 text-center">
+                                <div className="text-lg font-black text-slate-700">{progress}%</div>
+                                <div className="w-full bg-slate-100 h-2.5 rounded-full mt-3 overflow-hidden shadow-inner"><div className="bg-blue-600 h-full" style={{width: `${progress}%`}}></div></div>
+                            </td>
+                            <td className="px-10 py-8"><div className="text-xs font-bold text-slate-400 uppercase mb-2 tracking-wide">{p.Priority}</div>{p.Status === 'In Progress' ? <span className={`px-3 py-1 border-2 rounded-lg text-xs font-black ${risk > 15 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>RISK: {risk}%</span> : <span className="text-xs font-bold text-slate-300 italic">N/A</span>}</td>
+                            <td className="px-10 py-8 text-right text-slate-300"><Icons.ChevronDown /></td>
+                        </tr>
+                        {expandedProject === pid && (
+                            <tr className="bg-slate-50/70">
+                                <td colSpan="5" className="px-12 py-10 border-l-[6px] border-blue-500">
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
+                                        <div className="bg-white p-7 rounded-3xl border shadow-sm"><h4 className="text-xs font-black text-blue-600 uppercase mb-3 tracking-widest">Goal Statement</h4><p className="text-base italic text-slate-600 thai-font leading-relaxed">"{getFlexibleVal(p, 'Goal Statement')}"</p></div>
+                                        <div className="bg-white p-7 rounded-3xl border shadow-sm"><h4 className="text-xs font-black text-emerald-600 uppercase mb-3 tracking-widest">Success Criteria</h4><p className="text-base text-slate-600 whitespace-pre-line thai-font leading-relaxed">{getFlexibleVal(p, 'Success Criteria')}</p></div>
+                                    </div>
+                                    <div className="bg-white rounded-2xl border shadow-sm overflow-hidden mb-10">
+                                        <div className="bg-slate-800 text-white px-8 py-4 text-xs font-bold uppercase tracking-[0.15em] flex justify-between items-center"><span>Milestone Performance Matrix</span><span className="bg-slate-700 px-3 py-1 rounded-full text-[10px]">Entries: {milestones.length}</span></div>
+                                        <table className="w-full text-sm text-left">
+                                            <thead className="bg-slate-100 border-b font-bold text-slate-500 uppercase tracking-tight text-xs">
+                                                <tr className="divide-x divide-slate-200">
+                                                    <th className="px-5 py-4 w-20">Ver</th>
+                                                    <th className="px-5 py-4">Milestone Description</th>
+                                                    <th className="px-5 py-4 w-44">Target & Remaining</th>
+                                                    <th className="px-5 py-4 text-center w-24">Wt</th>
+                                                    <th className="px-5 py-4 text-center w-24">Done?</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {milestones.map((m, i) => {
+                                                    const days = getDaysRemaining(m['Target Date']);
+                                                    const done = isCompleted(m.Completed);
+                                                    return (
+                                                        <tr key={i} className="divide-x divide-slate-100">
+                                                            <td className="px-5 py-5 font-bold text-slate-400 font-sans">{m.version}</td>
+                                                            <td className="px-5 py-5 font-semibold text-slate-700 thai-font text-base">{m.Milestones}</td>
+                                                            <td className="px-5 py-5">
+                                                                <div className="text-sm font-semibold text-slate-500 font-sans">{m['Target Date'] || 'N/A'}</div>
+                                                                {done ? (
+                                                                    <span className="text-xs font-black text-emerald-500 mt-1 inline-block">Completed</span>
+                                                                ) : days !== null ? (
+                                                                    <span className={`text-xs px-2 py-0.5 rounded-md font-black uppercase mt-1 inline-block ${days < 0 ? 'bg-red-50 text-red-600' : days <= 7 ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                                                                        {days < 0 ? `${Math.abs(days)}d Overdue` : `${days}d Remaining`}
+                                                                    </span>
+                                                                ) : null}
+                                                            </td>
+                                                            <td className="px-5 py-5 text-center font-sans font-bold">{m['Weight (%)']}%</td>
+                                                            <td className="px-5 py-5 text-center font-black">{done ? <span className="text-emerald-500">YES</span> : <span className="text-slate-300 text-xs">NO</span>}</td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div className="bg-white p-8 rounded-3xl border shadow-sm"><h4 className="flex items-center gap-3 text-xs font-black text-slate-400 uppercase mb-6 tracking-[0.2em] border-b-2 border-slate-50 pb-4 font-sans"><Icons.Note /> Activity Timeline</h4><div className="space-y-4">{pLogs.map((log, idx) => (
+                                        <div key={idx} className="flex gap-6 text-sm thai-font items-baseline"><span className="font-black text-blue-600 font-sans whitespace-nowrap">{log.date}</span><span className="text-slate-600 border-l-2 pl-6 border-slate-50 py-1">{log.Note}</span></div>
+                                    ))}</div></div>
+                                </td>
+                            </tr>
+                        )}
+                    </React.Fragment>
+                );
+            };
+
+            if (authError) return (
+                <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+                    <div className="bg-white p-12 rounded-3xl border border-red-100 shadow-xl text-center max-w-md">
+                        <div className="text-red-500 mb-6 flex justify-center scale-[2.5]"><Icons.Alert /></div>
+                        <h2 className="text-3xl font-bold text-slate-800 mb-3">Authentication Failed</h2>
+                        <p className="text-base text-slate-500 mb-10">The credentials you provided are incorrect. Please refresh to try again.</p>
+                        <button onClick={() => window.location.reload()} className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold text-lg hover:bg-blue-700 transition-all">RETRY LOGIN</button>
+                    </div>
+                </div>
+            );
+
+            if (isLoading) return <div className="min-h-screen flex items-center justify-center text-xs font-black text-slate-400 tracking-widest uppercase">Syncing Dashboard v4.24...</div>;
+
+            return (
+                <div className="min-h-screen p-6 md:p-12 max-w-7xl mx-auto">
+                    {/* UI HEADER */}
+                    <header className="flex flex-col lg:flex-row lg:items-center justify-between mb-16 gap-10">
+                        <div>
+                            <h1 className="text-4xl font-bold text-slate-900 tracking-tight">Project Portfolio: Goals and Milestones</h1>
+                            <p className="text-xs font-black text-emerald-500 uppercase tracking-[0.2em] mt-2">TDID Project Milestones Dashboard Version 4.24</p>
+                            <div className="flex items-center gap-4 mt-6 text-sm font-semibold text-slate-600">
+                                <span className="flex items-center gap-3 bg-white px-4 py-2 border rounded-xl shadow-sm"><Icons.Calendar /> {TODAY_DISPLAY}</span>
+                                <span className={`flex items-center gap-3 px-4 py-2 border rounded-xl shadow-sm ${daysSinceUpdate > 7 ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-700'}`}>
+                                    <Icons.Clock /> Last Entry: {daysSinceUpdate === 0 ? 'Today' : `${daysSinceUpdate}d ago`}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-5">
+                            <div className="relative w-full lg:w-96">
+                                <span className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400"><Icons.Search /></span>
+                                <input type="text" placeholder="Search Projects & Owners" className="w-full pl-12 pr-5 py-4 bg-white border border-slate-200 rounded-2xl text-base outline-none shadow-sm focus:border-blue-500 transition-all" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                            </div>
+                            <button onClick={generateUniversalPDF} disabled={isExporting} className={`p-4 bg-blue-600 rounded-2xl text-white hover:bg-blue-700 flex items-center gap-3 text-sm font-bold transition-all ${isExporting ? 'opacity-50 cursor-not-allowed' : 'shadow-lg hover:-translate-y-0.5'}`}>
+                                <Icons.Download /> {isExporting ? 'GENERATING...' : 'GENERATE PDF'}
+                            </button>
+                            <button onClick={() => {localStorage.removeItem(SESSION_KEY); window.location.reload();}} className="p-4 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-red-600 transition-all shadow-sm"><Icons.Logout /></button>
+                        </div>
+                    </header>
+
+                    {/* STATS GRID */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
+                        {/* Card 1: Project Status — vertical list */}
+                        <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm flex flex-col justify-between">
+                            <div>
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Project Status</p>
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 flex-shrink-0"></span>
+                                            <span className="text-sm font-semibold text-slate-600">In Progress</span>
+                                        </div>
+                                        <span className="text-2xl font-black text-blue-600">{stats.inProgressCount}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0"></span>
+                                            <span className="text-sm font-semibold text-slate-600">Completed</span>
+                                        </div>
+                                        <span className="text-2xl font-black text-emerald-600">{stats.completedCount}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-2.5 h-2.5 rounded-full bg-slate-300 flex-shrink-0"></span>
+                                            <span className="text-sm font-semibold text-slate-400">Cancelled</span>
+                                        </div>
+                                        <span className="text-2xl font-black text-slate-400">{stats.cancelledCount}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center">
+                                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Projects</span>
+                                <span className="text-xl font-black text-slate-700">{stats.totalCount}</span>
+                            </div>
+                        </div>
+                        {/* Card 2: Completion Rate — circular donut */}
+                        {(() => {
+                            const r = 36, cx = 55, cy = 55;
+                            const circ = 2 * Math.PI * r;
+                            const dashoffset = circ * (1 - stats.completionRate / 100);
+                            const col = stats.completionRate >= 75 ? '#10b981' : stats.completionRate >= 40 ? '#3b82f6' : '#f59e0b';
+                            return (
+                                <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm flex flex-col">
+                                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Completion Rate</p>
+                                    <div className="flex-1 flex items-center justify-center py-1">
+                                        <svg viewBox="0 0 110 110" style={{width:'100%', maxWidth:'140px'}}>
+                                            {/* Track */}
+                                            <circle cx={cx} cy={cy} r={r} fill="none" stroke="#e2e8f0" strokeWidth="12"/>
+                                            {/* Progress arc — starts at 12 o'clock */}
+                                            <circle cx={cx} cy={cy} r={r} fill="none" stroke={col} strokeWidth="12"
+                                                strokeDasharray={`${circ} ${circ}`}
+                                                strokeDashoffset={dashoffset}
+                                                strokeLinecap="round"
+                                                transform={`rotate(-90 ${cx} ${cy})`}
+                                            />
+                                            {/* Center label */}
+                                            <text x={cx} y={cy+7} textAnchor="middle" fontSize="22" fontWeight="900" fill={col}>{stats.completionRate}%</text>
+                                            <text x={cx} y={cy+20} textAnchor="middle" fontSize="8" fill="#94a3b8">projects done</text>
+                                        </svg>
+                                    </div>
+                                </div>
+                            );
+                        })()}
+                        {/* Card 3: High Risk Projects */}
+                        <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm flex flex-col justify-between">
+                            <div>
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">High Risk Projects</p>
+                                <p className={`text-4xl font-black ${stats.highRiskCount > 0 ? 'text-red-500' : 'text-emerald-500'}`}>{stats.highRiskCount}</p>
+                                <p className="text-xs text-slate-400 mt-1.5 font-medium">{stats.highRiskCount > 0 ? 'projects need attention' : 'all projects on track'}</p>
+                            </div>
+                            <div className={`mt-4 px-3 py-2 rounded-xl text-xs font-black flex items-center gap-2 ${stats.highRiskCount > 0 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${stats.highRiskCount > 0 ? 'bg-red-400' : 'bg-emerald-400'}`}></span>
+                                {stats.highRiskCount > 0 ? `${stats.highRiskCount} project(s) with risk > 15%` : 'Risk within acceptable range'}
+                            </div>
+                        </div>
+                        {/* Card 4: Upcoming Milestones — 7d + 30d */}
+                        <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm flex flex-col justify-between">
+                            <div>
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Upcoming Milestones</p>
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-2.5 h-2.5 rounded-full bg-red-400 flex-shrink-0"></span>
+                                            <span className="text-sm font-semibold text-slate-600">Due in 7 days</span>
+                                        </div>
+                                        <span className={`text-2xl font-black ${stats.upcoming7Count > 0 ? 'text-red-500' : 'text-slate-400'}`}>{stats.upcoming7Count}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 flex-shrink-0"></span>
+                                            <span className="text-sm font-semibold text-slate-600">Due in 30 days</span>
+                                        </div>
+                                        <span className={`text-2xl font-black ${stats.upcomingCount > 0 ? 'text-amber-500' : 'text-slate-400'}`}>{stats.upcomingCount}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className={`mt-4 px-3 py-2 rounded-xl text-xs font-black flex items-center gap-2 ${stats.upcoming7Count > 0 ? 'bg-red-50 text-red-600' : stats.upcomingCount > 0 ? 'bg-amber-50 text-amber-600' : 'bg-slate-50 text-slate-400'}`}>
+                                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${stats.upcoming7Count > 0 ? 'bg-red-400' : stats.upcomingCount > 0 ? 'bg-amber-400' : 'bg-slate-300'}`}></span>
+                                {stats.upcoming7Count > 0 ? `${stats.upcoming7Count} urgent — action needed this week` : stats.upcomingCount > 0 ? `${stats.upcomingCount} milestone(s) due this month` : 'No immediate deadlines'}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* DASHBOARD TABLE */}
+                    <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden mb-24">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-base">
+                                <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-widest border-b">
+                                    <tr>
+                                        <th className="px-10 py-6">Project / ID</th>
+                                        <th className="px-10 py-6">Lead & Status</th>
+                                        <th className="px-10 py-6 text-center">Progress</th>
+                                        <th className="px-10 py-6">Priority & Risk</th>
+                                        <th className="px-10 py-6 text-right">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                    {highRiskProjects.length > 0 && (
+                                        <tr className="bg-red-50">
+                                            <td colSpan="5" className="px-10 py-3 border-b border-red-100">
+                                                <div className="flex items-center gap-2 text-xs font-black text-red-600 uppercase tracking-[0.15em]">
+                                                    <Icons.Alert />
+                                                    <span>High Risk — {highRiskProjects.length} project{highRiskProjects.length > 1 ? 's' : ''} with overdue milestones requiring attention</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )}
+                                    {highRiskProjects.map(renderProjectRow)}
+                                    {highRiskProjects.length > 0 && otherProjects.length > 0 && (
+                                        <tr className="bg-slate-50">
+                                            <td colSpan="5" className="px-10 py-2 border-b border-slate-100">
+                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Other Projects</span>
+                                            </td>
+                                        </tr>
+                                    )}
+                                    {otherProjects.map(renderProjectRow)}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* PDF STAGING AREA (HIDDEN) */}
+                    <div id="pdf-staging" ref={stagingRef}>
+                        <div className="pdf-page">
+                            <h1 className="text-4xl font-black text-slate-900 mb-10 uppercase tracking-tight border-b-8 border-blue-600 pb-4">Project Portfolio: Goals and Milestones</h1>
+                            <div className="grid grid-cols-2 gap-10 mb-16 text-sm font-bold text-slate-500 uppercase tracking-widest">
+                                <div><p className="mb-2">Report Date: {TODAY_DISPLAY}</p><p>Source ID: {STORAGE_ID}</p></div>
+                                <div className="text-right text-base"><p className="text-blue-600 font-black mb-1">In Progress: {stats.inProgressCount} | Completed: {stats.completedCount} | Cancelled: {stats.cancelledCount}</p><p className="text-emerald-600 font-black">Completion Rate: {stats.completionRate}%</p></div>
+                            </div>
+                            <table className="w-full text-sm border-collapse">
+                                <thead className="bg-slate-100 text-slate-500 font-black uppercase text-xs"><tr className="border-b-4 border-slate-200"><th className="p-5 text-left">Project / ID</th><th className="p-5 text-left">Owner / Status</th><th className="p-5 text-center">Progress</th><th className="p-5 text-right">Risk Score</th></tr></thead>
+                                <tbody>{[...highRiskProjects, ...otherProjects].map(p => {
+                                    const pid = String(p['Project IDs'] || "").trim();
+                                    const risk = calculateRisk(pid, p.Status, allMilestones);
+                                    const progress = calculateProgress(pid, allMilestones);
+                                    const isHigh = p.Status === 'In Progress' && risk > 15;
+                                    return (
+                                        <tr key={pid} className={`border-b-2 ${isHigh ? 'bg-red-50 border-red-100' : 'border-slate-50'}`}>
+                                            <td className="p-6 font-black thai-font text-base">{isHigh && <span className="text-red-500 mr-1">⚠</span>}{p['Project Name']}<br/><span className="text-[10px] font-sans text-slate-400 uppercase tracking-tighter">ID: {pid}</span></td>
+                                            <td className="p-6 thai-font text-sm">{p.Owner}<br/><span className="text-[10px] font-sans font-black text-blue-500 uppercase">{p.Status}</span></td>
+                                            <td className="p-6 text-center font-black text-slate-800 text-lg">{progress}%</td>
+                                            <td className={`p-6 text-right font-black text-lg ${isHigh ? 'text-red-600' : 'text-slate-500'}`}>{risk !== null ? `${risk}%` : 'N/A'}</td>
+                                        </tr>
+                                    );
+                                })}</tbody>
+                            </table>
+                        </div>
+                        {[...highRiskProjects, ...otherProjects].map(p => {
+                            const pid = String(p['Project IDs'] || "").trim();
+                            const risk = calculateRisk(pid, p.Status, allMilestones);
+                            const progress = calculateProgress(pid, allMilestones);
+                            const milestones = allMilestones.filter(m => String(m.id || "").trim() === pid);
+                            const pLogs = logs.filter(l => String(l.id || "").trim() === pid);
+                            return (
+                                <div className="pdf-page" key={`pdf-${pid}`}>
+                                    <div className="bg-slate-900 text-white p-10 rounded-t-[2.5rem] flex justify-between items-end mb-10">
+                                        <div><h3 className="text-3xl font-black thai-font">{p['Project Name']}</h3><p className="text-xs font-bold text-blue-400 uppercase tracking-[0.3em] mt-2">Dossier Tracking | ID: {pid}</p></div>
+                                        <div className="text-right"><p className="text-lg font-black uppercase text-emerald-400">Progress: {progress}%</p></div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-12 mb-12">
+                                        <div><h4 className="text-xs font-black text-slate-400 uppercase mb-3 tracking-widest">Goal Statement</h4><p className="text-sm thai-font font-semibold leading-relaxed italic text-slate-600">"{getFlexibleVal(p, 'Goal Statement') || 'N/A'}"</p></div>
+                                        <div><h4 className="text-xs font-black text-slate-400 uppercase mb-3 tracking-widest">Success Criteria</h4><p className="text-sm thai-font font-semibold leading-relaxed text-slate-600">{getFlexibleVal(p, 'Success Criteria') || 'N/A'}</p></div>
+                                    </div>
+                                    <div className="border-4 border-slate-50 rounded-2xl overflow-hidden mb-12">
+                                        <table className="w-full text-[11px] border-collapse">
+                                            <thead className="bg-slate-50 font-black uppercase text-slate-400 border-b-2">
+                                                <tr><th className="p-3 text-left">Ver</th><th className="p-3 text-left">Milestone</th><th className="p-3 text-left">Target & Remaining</th><th className="p-3 text-center">Wt</th><th className="p-3 text-center">Done?</th></tr>
+                                            </thead>
+                                            <tbody className="divide-y-2">{milestones.map((m, idx) => {
+                                                const days = getDaysRemaining(m['Target Date']);
+                                                const done = isCompleted(m.Completed);
+                                                return (
+                                                    <tr key={idx}>
+                                                        <td className="p-4 font-bold text-slate-400 font-sans">{m.version}</td>
+                                                        <td className="p-4 font-black thai-font text-slate-700 text-xs">{m.Milestones}</td>
+                                                        <td className="p-4 font-bold text-slate-600">
+                                                            {m['Target Date'] || 'N/A'}
+                                                            {done ? ' ✓' : days !== null ? ` (${days < 0 ? Math.abs(days) + 'd Overdue' : days + 'd Remaining'})` : ''}
+                                                        </td>
+                                                        <td className="p-4 text-center font-bold">{m['Weight (%)']}%</td>
+                                                        <td className="p-4 text-center font-black">{done ? 'YES' : 'NO'}</td>
+                                                    </tr>
+                                                );
+                                            })}</tbody>
+                                        </table>
+                                    </div>
+                                    <h4 className="text-xs font-black text-slate-400 uppercase mb-5 border-b-4 border-slate-50 pb-2 tracking-[0.2em]">Full Activity Log</h4>
+                                    <div className="space-y-4">{pLogs.map((l, idx) => (<div key={idx} className="flex gap-6 text-[11px] font-semibold"><div className="text-blue-600 font-black w-20 font-sans">{l.date}</div><div className="thai-font text-slate-600 border-l-2 pl-5 border-slate-50 leading-relaxed">{l.Note}</div></div>))}</div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        };
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
